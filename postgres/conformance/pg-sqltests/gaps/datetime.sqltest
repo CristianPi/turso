@@ -16,7 +16,6 @@
 @database :memory:
 
 # A stored timestamptz cast to text loses its +00 offset.
-@compat-gap "cast:timestamptz -> text"
 test stored-timestamptz-text-cast {
     CREATE TABLE t (id int, created_at timestamptz);
     INSERT INTO t VALUES (1, '2026-01-01 10:00:00.25+02');
@@ -25,12 +24,8 @@ test stored-timestamptz-text-cast {
 expect {
     2026-01-01 08:00:00.25+00
 }
-expect @tursopg {
-    2026-01-01 08:00:00.25
-}
 
 # Concatenation converts the value with the same cast.
-@compat-gap "cast:timestamptz -> text"
 test stored-timestamptz-concat {
     CREATE TABLE t (id int, created_at timestamptz);
     INSERT INTO t VALUES (1, '2026-01-01 10:00:00.25+02');
@@ -39,12 +34,8 @@ test stored-timestamptz-concat {
 expect {
     at 2026-01-01 08:00:00.25+00
 }
-expect @tursopg {
-    at 2026-01-01 08:00:00.25
-}
 
 # Without the offset, the text comparison on tursopg returns no rows.
-@compat-gap "cast:timestamptz -> text"
 test where-timestamptz-text-compare {
     CREATE TABLE t (id int, ts timestamptz);
     INSERT INTO t VALUES (1, '2026-01-01 00:00Z'), (2, '2026-01-01 01:00+01'), (3, '2025-12-31 21:00-03');
@@ -55,40 +46,26 @@ expect {
     2
     3
 }
-expect @tursopg {
-}
 
-@compat-gap "type:_timestamptz"
 test array-agg-timestamptz-output {
     SELECT (SELECT array_agg(x) FROM (VALUES (timestamptz '2026-01-31 10:00Z')) v(x));
 }
 expect {
     {"2026-01-31 10:00:00+00"}
 }
-expect @tursopg {
-    {"2026-01-31 10:00:00"}
-}
 
-@compat-gap "function:format"
 test format-timestamptz-output {
     SELECT format('%s', timestamptz '2026-01-31 10:00Z');
 }
 expect {
     2026-01-31 10:00:00+00
 }
-expect @tursopg {
-    2026-01-31 10:00:00
-}
 
-@compat-gap "function:concat"
 test concat-timestamptz-output {
     SELECT concat('at ', timestamptz '2026-01-31 10:00Z');
 }
 expect {
     at 2026-01-31 10:00:00+00
-}
-expect @tursopg {
-    at 2026-01-31 10:00:00
 }
 
 # tursopg stores the integer 20260101 as 2026-01-01 00:00:00+00; PostgreSQL rejects it.
@@ -414,7 +391,6 @@ expect {
 expect @tursopg error {}
 
 # The common type of timestamptz and timestamp is timestamptz.
-@compat-gap "cast:timestamp -> timestamptz"
 test coalesce-timestamptz-timestamp {
     CREATE TABLE t (id int, tstz timestamptz, ts timestamp);
     INSERT INTO t VALUES (1, '2026-01-01 10:00+02', '2026-01-01 08:00'), (2, '2026-01-01 10:00Z', '2026-01-01 09:00');
@@ -423,10 +399,6 @@ test coalesce-timestamptz-timestamp {
 expect {
     2026-01-01 08:00:00+00
     2026-01-01 10:00:00+00
-}
-expect @tursopg {
-    2026-01-01 08:00:00
-    2026-01-01 10:00:00
 }
 
 @compat-gap "cast:timestamp -> timestamptz"
@@ -440,7 +412,7 @@ expect {
     2026-01-01 09:00:00+00
 }
 expect @tursopg {
-    2026-01-01 08:00:00
+    2026-01-01 08:00:00+00
     2026-01-01 09:00:00
 }
 
@@ -456,7 +428,6 @@ expect @tursopg {
     2026.0
 }
 
-@compat-gap "function:percentile_disc"
 test percentile-disc-timestamptz {
     CREATE TABLE t (id int, ts timestamptz);
     INSERT INTO t VALUES (1, '2026-01-01 10:00+02'), (2, '2026-01-01 09:00Z'), (3, NULL), (4, '2026-01-02Z');
@@ -464,9 +435,6 @@ test percentile-disc-timestamptz {
 }
 expect {
     2026-01-01 09:00:00+00
-}
-expect @tursopg {
-    2026-01-01 09:00:00
 }
 
 test date-trunc-day {

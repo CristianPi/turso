@@ -30,11 +30,13 @@ use crate::translate::catalog::CatalogContext;
 use crate::translate::collate::CollationSeq;
 use crate::translate::emitter::{prepare_cdc_if_necessary, Resolver};
 use crate::translate::expr::expr_type::{
-    base_value_type, decode_type, iif_values, value_type, ExprType,
+    base_value_type, decode_type, iif_values, type_of, value_type, ExprType, TypeEnv,
 };
 use crate::translate::expr::{takes_input_of_type, walk_expr, WalkControl};
 use crate::translate::fkeys::emit_fk_drop_table_check;
-use crate::translate::plan::{compound_column_affinity, Plan, QueryDestination};
+use crate::translate::plan::{
+    compound_column_affinity, Plan, QueryDestination, ResultSetColumn, TableReferences,
+};
 use crate::translate::planner::ROWID_STRS;
 use crate::translate::select::{emit_select_plan, prepare_select_plan};
 use crate::translate::{ProgramBuilder, ProgramBuilderOpts};
@@ -909,6 +911,18 @@ struct CtasInfo {
     schema_sql: String,
 }
 
+/// Whether a column of this type is not the same as a column of its base type: a
+/// domain, STRUCT or UNION, or a type that converts values when it stores or
+/// reads them. A type with at most a COERCE check, such as varchar(n), is not,
+/// because the table copied from it keeps the values and loses only the check.
+fn changes_stored_value(type_def: &crate::schema::TypeDef) -> bool {
+    type_def.is_domain
+        || type_def.is_struct()
+        || type_def.is_union()
+        || type_def.encode().is_some()
+        || !type_def.decode_returns_value_unchanged()
+}
+
 /// Pre-plan the SELECT to derive the schema for a CTAS table.
 /// Returns the plan (for reuse in emission) along with the complete schema SQL and column definitions.
 fn derive_ctas_schema(
@@ -963,6 +977,42 @@ fn derive_ctas_schema(
             *name = format!("{name}:{count}");
         }
         *count += 1;
+    }
+
+    // The new table types its columns with SQLite declared types, so the
+    // dialect decides what happens to a column of a custom type before the
+    // table is created. Every arm of a compound select is checked.
+    let arms: Vec<(&[ResultSetColumn], &TableReferences)> = match &plan {
+        Plan::Select(sp) => vec![(&sp.result_columns[..], &sp.table_references)],
+        Plan::CompoundSelect {
+            left, right_most, ..
+        } => left
+            .iter()
+            .map(|(select, _)| select)
+            .chain(std::iter::once(&**right_most))
+            .map(|select| (&select.result_columns[..], &select.table_references))
+            .collect(),
+        _ => unreachable!("checked above"),
+    };
+    let dialect = connection.dialect();
+    for (arm_columns, arm_tables) in arms {
+        let env = TypeEnv::new(Some(arm_tables), resolver);
+        for (column, name) in arm_columns.iter().zip(&names) {
+            let ty = type_of(&column.expr, &env);
+            let element = match &ty {
+                ExprType::Array { element, .. } => element.as_ref(),
+                scalar => scalar,
+            };
+            match element {
+                ExprType::Custom { type_def, .. } if changes_stored_value(type_def) => {
+                    dialect.check_ctas_column_type(name, Some(&type_def.name))?
+                }
+                // An expression that type_of cannot type here, such as DEFAULT,
+                // could be a custom type.
+                ExprType::NotKnownYet => dialect.check_ctas_column_type(name, None)?,
+                _ => {}
+            }
+        }
     }
 
     let mut sql_parts = Vec::with_capacity(result_columns.len());

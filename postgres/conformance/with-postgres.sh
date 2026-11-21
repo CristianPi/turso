@@ -7,14 +7,23 @@
 # script starts a throwaway PostgreSQL container with Docker, runs the
 # command, and removes the container.
 #
-# The default is PostgreSQL 18, the version in postgres/version. To try
-# another version locally, set POSTGRES_VERSION to a tag of the postgres
-# Docker image, for example POSTGRES_VERSION=17.
+# The default is PostgreSQL 18.7, a release of the major version in
+# postgres/version. The tag names the minor release because the tag "18"
+# moves with each 18.x release and the mirror can serve an older 18.x, and
+# the tests expect 18.7 behavior: 18.7 checks the row an INSERT ... ON
+# CONFLICT DO UPDATE conflicts with against row policies before the DO
+# UPDATE WHERE. To try another version locally, set POSTGRES_VERSION to a
+# tag of the postgres Docker image, for example POSTGRES_VERSION=17.
 set -euo pipefail
 
-VERSION_FILE="$(dirname "${BASH_SOURCE[0]}")/../version"
-POSTGRES_VERSION="${POSTGRES_VERSION:-$(cat "$VERSION_FILE")}"
-POSTGRES_IMAGE="${POSTGRES_IMAGE:-mirror.gcr.io/library/postgres:$POSTGRES_VERSION}"
+POSTGRES_VERSION="${POSTGRES_VERSION:-18.7}"
+if [[ -z "${POSTGRES_IMAGE:-}" ]]; then
+    POSTGRES_IMAGE="mirror.gcr.io/library/postgres:$POSTGRES_VERSION"
+    # The mirror holds only the tags someone pulled through it recently.
+    if [[ -z "${PG_DSN:-}" ]] && ! docker pull --quiet "$POSTGRES_IMAGE" >/dev/null 2>&1; then
+        POSTGRES_IMAGE="docker.io/library/postgres:$POSTGRES_VERSION"
+    fi
+fi
 
 if [[ -n "${PG_DSN:-}" ]]; then
     exec "$@"

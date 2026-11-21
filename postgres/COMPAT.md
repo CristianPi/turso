@@ -20,7 +20,9 @@ SQLSTATE fuzzer and the `pg_dump` differential fuzzer compare Turso against a
 PostgreSQL 18 server, and CI uses PostgreSQL 18 clients. The version is set in
 `postgres/version`. Behavior that differs between PostgreSQL versions follows
 PostgreSQL 18, and a newer release is supported only after the version there
-is changed and the tests pass against it.
+is changed and the tests pass against it. The conformance tests start PostgreSQL 18.7 by
+default (`postgres/conformance/with-postgres.sh`), because some 18.x minor
+releases changed behavior the tests check.
 
 ## Architecture
 
